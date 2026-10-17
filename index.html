@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BalasCepat — 1 Inbox Untuk Semua Chat Jualan</title>
+<meta name="description" content="Balas chat WA, IG, Shopee & Tokopedia dalam 1 layar. Auto-reply AI, assign CS, omzet naik."/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: { sans: ['"Plus Jakarta Sans"','Inter','system-ui','sans-serif'] },
+      colors: {
+        brand: {50:'#eef4ff',100:'#dbe7fe',200:'#bfd3fe',300:'#93b4fd',400:'#608dfa',500:'#3b66f6',600:'#2549eb',700:'#1d3ad8',800:'#1e32af',900:'#1e2f8a'},
+        wa:'#25D366', ig:'#E1306C', shopee:'#EE4D2D', toko:'#03AC0E'
+      },
+      boxShadow: { soft:'0 8px 30px rgba(0,0,0,.08)', pop:'0 12px 40px rgba(0,0,0,.16)' }
+    }
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<style>
+  html,body{height:100%;}
+  body{font-family:'Plus Jakarta Sans',Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#c7cdd8;border-radius:99px}
+  .dark ::-webkit-scrollbar-thumb{background:#3a4152}
+  @keyframes chatIn{0%{opacity:0;transform:translateY(-14px) scale(.98);background:#dbeafe}60%{background:#dbeafe}100%{opacity:1;transform:translateY(0)}}
+  .dark @keyframes chatIn{0%{opacity:0;transform:translateY(-14px)}100%{opacity:1;transform:translateY(0)}}
+  @keyframes chatIn{0%{opacity:0;transform:translateY(-14px)}100%{opacity:1;transform:translateY(0)}}
+  .anim-new-chat{animation:chatIn .7s ease both;box-shadow:0 0 0 2px #3b66f6 inset;}
+  @keyframes msgIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+  .anim-msg{animation:msgIn .25s ease both}
+  @keyframes toastIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+  .anim-toast{animation:toastIn .3s ease both}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+  .anim-floaty{animation:floaty 5s ease-in-out infinite}
+  @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.35}}
+  .anim-pulse-dot{animation:pulseDot 1.6s ease-in-out infinite}
+  @keyframes typing{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}
+  .typing-dot{animation:typing 1.2s infinite}
+  .typing-dot:nth-child(2){animation-delay:.15s}.typing-dot:nth-child(3){animation-delay:.3s}
+  .ig-gradient{background:linear-gradient(45deg,#F58529,#DD2A7B 50%,#8134AF)}
+  .bubble-tail-l{position:relative}
+  input,textarea{outline:none}
+  .no-select{user-select:none}
+</style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState, useEffect, useRef, useMemo, useCallback, useReducer} = React;
+
+/* ================= UTIL ================= */
+const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
+const nowTs = () => Date.now();
+const MIN = 60000;
+function timeAgo(ts){
+  const d = Date.now()-ts;
+  if(d < MIN) return 'baru saja';
+  if(d < 60*MIN) return Math.floor(d/MIN)+' mnt';
+  if(d < 24*60*MIN) return Math.floor(d/(60*MIN))+' jam';
+  const dt = new Date(ts), today = new Date();
+  const yesterday = new Date(); yesterday.setDate(today.getDate()-1);
+  if(dt.toDateString()===yesterday.toDateString()) return 'kemarin';
+  return dt.toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+}
+function clockTime(ts){ const d=new Date(ts); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+const rupiah = n => 'Rp ' + Number(n||0).toLocaleString('id-ID');
+const esc = s => String(s??'');
+
+const PLATFORMS = {
+  wa:        { name:'WhatsApp',  short:'WA',      color:'#25D366', icon:'message-circle', adminBubble:'bg-[#d9fdd3] dark:bg-green-950/60 border-green-200 dark:border-green-900', chipBg:'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300' },
+  ig:        { name:'Instagram', short:'IG',      color:'#E1306C', icon:'instagram',      adminBubble:'bg-pink-100 dark:bg-pink-950/60 border-pink-200 dark:border-pink-900',   chipBg:'bg-pink-100 dark:bg-pink-950 text-pink-700 dark:text-pink-300' },
+  shopee:    { name:'Shopee',    short:'Shopee',  color:'#EE4D2D', icon:'shopping-bag',   adminBubble:'bg-orange-100 dark:bg-orange-950/60 border-orange-200 dark:border-orange-900', chipBg:'bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300' },
+  tokopedia: { name:'Tokopedia', short:'Tokped',  color:'#03AC0E', icon:'store',          adminBubble:'bg-emerald-100 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-900', chipBg:'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' },
+};
+const AVATAR_COLORS = ['bg-violet-500','bg-blue-500','bg-rose-500','bg-amber-500','bg-teal-500','bg-indigo-500','bg-fuchsia-500','bg-cyan-600'];
+const avatarColor = id => AVATAR_COLORS[(String(id).charCodeAt(0)+String(id).length)%AVATAR_COLORS.length];
+const initials = name => String(name||'?').replace('@','').split(/[\s._]+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+
+/* ================= STORE (mini-Zustand + localStorage, Supabase-ready) ================= */
+// Skema 1:1 siap migrasi ke Supabase: conversations, messages, customers, quick_replies, team_members
+const DB_KEY = 'balascepat_v1';
+function persist(db){ try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch(e){} }
+function loadDB(){
+  try{ const raw = localStorage.getItem(DB_KEY); if(raw){ const db = JSON.parse(raw); if(db && db.conversations) return db; } }catch(e){}
+  const db = seedDB(); persist(db); return db;
+}
+const _subs = new Set();
+const store = {
+  db: loadDB(),
+  update(fn){ this.db = fn(this.db); persist(this.db); _subs.forEach(f=>f()); },
+};
+function useStore(sel){
+  const [,force] = useReducer(x=>x+1, 0);
+  useEffect(()=>{ _subs.add(force); return ()=>_subs.delete(force); },[]);
+  return sel ? sel(store.db) : store.db;
+}
+
+/* ================= SEED: 15 percakapan UMKM Semarang ================= */
+function seedDB(){
+  const T = Date.now();
+  const m = mins => T - mins*MIN;
+  const customers = [
+    {id:'c1', name:'Siti Rahayu', phone:'0812-3456-7890', address:'Jl. Pahlawan No. 45, Semarang', totalSpent:1250000, lastOrder:'Kaos Hitam M', followers:null,
+     orders:[{item:'Kaos Hitam M',price:129000,date:'12 Okt'},{item:'Kemeja Flanel',price:189000,date:'28 Sep'},{item:'Topi Snapback',price:99000,date:'10 Sep'}],
+     notes:'Pelanggan ini suka komplain ukuran, hati-hati. Selalu kirim size chart dulu.'},
+    {id:'c2', name:'Andi Prasetyo', phone:'0813-9988-1122', address:'Jl. Majapahit No. 210, Semarang', totalSpent:450000, lastOrder:'Hoodie Abu XL', followers:null,
+     orders:[{item:'Hoodie Abu XL',price:249000,date:'15 Okt'},{item:'Kaos Putih L',price:99000,date:'02 Okt'},{item:'Celana Chino',price:179000,date:'20 Sep'}],
+     notes:'Sering tanya resi. Fast respon = repeat order.'},
+    {id:'c3', name:'@ratnaa.prm', phone:'-', address:'-', totalSpent:0, lastOrder:'-', followers:'1,2 rb',
+     orders:[], notes:'Follower baru dari IG Ads. Belum pernah beli.'},
+    {id:'c4', name:'Dewi Lestari', phone:'0821-7744-2211', address:'Perum Bukit Asri B-12, Semarang', totalSpent:680000, lastOrder:'Brownies Kukus 20x20', followers:null,
+     orders:[{item:'Brownies Kukus 20x20',price:85000,date:'14 Okt'},{item:'Pisang Coklat 2 box',price:90000,date:'05 Okt'},{item:'Brownies Kukus 20x20',price:85000,date:'21 Sep'}],
+     notes:'Langganan kue. Suka pesan dadakan untuk acara.'},
+    {id:'c5', name:'Budi Hartono', phone:'0857-3322-9900', address:'Jl. dr. Cipto No. 88, Semarang', totalSpent:320000, lastOrder:'Sneakers Putih 42', followers:null,
+     orders:[{item:'Sneakers Putih 42',price:320000,date:'16 Okt'}], notes:''},
+    {id:'c6', name:'Maya Putri', phone:'-', address:'-', totalSpent:189000, lastOrder:'Dress Bunga Sage', followers:'860',
+     orders:[{item:'Dress Bunga Sage',price:189000,date:'09 Okt'}], notes:'Aktif di IG, sering checkout via DM.'},
+    {id:'c7', name:'Agus Setiawan', phone:'0819-5566-3344', address:'Jl. Pamularsih No. 30, Semarang', totalSpent:540000, lastOrder:'Kemeja Batik Sogan', followers:null,
+     orders:[{item:'Kemeja Batik Sogan',price:275000,date:'16 Okt'},{item:'Kaos Kerah Navy',price:149000,date:'30 Sep'}], notes:''},
+    {id:'c8', name:'Rina Wulandari', phone:'0822-1199-6655', address:'Jl. Tlogosari Raya No. 5, Semarang', totalSpent:210000, lastOrder:'Tote Bag Kanvas', followers:null,
+     orders:[{item:'Tote Bag Kanvas',price:89000,date:'11 Okt'}], notes:'Suka nego. Kasih diskon bundling biar closing.'},
+    {id:'c9', name:'Dimas Saputra', phone:'0815-2233-8899', address:'Jl. Veteran No. 12, Semarang', totalSpent:150000, lastOrder:'Topi Snapback', followers:null,
+     orders:[{item:'Topi Snapback',price:99000,date:'08 Okt'}], notes:''},
+    {id:'c10', name:'Intan Permata', phone:'-', address:'-', totalSpent:0, lastOrder:'-', followers:'2,4 rb',
+     orders:[], notes:'Tanya-tanya PO custom dress.'},
+    {id:'c11', name:'Eko Purnomo', phone:'0812-7788-4455', address:'Jl. Gajah Mada No. 101, Semarang', totalSpent:320000, lastOrder:'Sneakers Putih 42', followers:null,
+     orders:[{item:'Sneakers Putih 42',price:320000,date:'16 Okt'}], notes:''},
+    {id:'c12', name:'Fitri Handayani', phone:'0856-4411-7788', address:'Jl. Banjarsari No. 77, Tembalang', totalSpent:270000, lastOrder:'Pisang Coklat Lumer', followers:null,
+     orders:[{item:'Pisang Coklat Lumer',price:45000,date:'13 Okt'},{item:'Brownies Kukus',price:85000,date:'02 Okt'}],
+     notes:'Langganan jajan. Anak kos, suka order bareng teman.'},
+    {id:'c13', name:'Hendra Gunawan', phone:'0813-6677-2211', address:'Jl. Imam Bonjol No. 56, Semarang', totalSpent:189000, lastOrder:'Kemeja Flanel', followers:null,
+     orders:[{item:'Kemeja Flanel',price:189000,date:'15 Okt'}], notes:'KOMPLAIN: jahitan lepas. Prioritaskan, tawarkan retur/ganti.'},
+    {id:'c14', name:'Sari Melati', phone:'0821-9900-1122', address:'Jl. MT Haryono No. 300, Semarang', totalSpent:890000, lastOrder:'Kaos Polos (grosir)', followers:null,
+     orders:[{item:'Kaos Polos 12pcs',price:576000,date:'01 Okt'},{item:'Kaos Polos 6pcs',price:294000,date:'12 Sep'}],
+     notes:'Reseller potensial. Ambil grosir rutin tiap bulan.'},
+    {id:'c15', name:'Toko Berkah Jaya', phone:'0819-2244-6677', address:'Pasar Johar Blok C-21, Semarang', totalSpent:2400000, lastOrder:'Kaos Hitam 30pcs', followers:null,
+     orders:[{item:'Kaos Hitam 30pcs',price:1350000,date:'05 Okt'},{item:'Kaos Putih 20pcs',price:900000,date:'18 Sep'}],
+     notes:'Reseller besar Pasar Johar. Jangan sampai telat respon!'},
+  ];
+  const mkMsgs = (convId, arr) => arr.map((x,i)=>({id:convId+'-m'+i, convId, from:x[0], text:x[1], at:x[2]}));
+  const convDefs = [
+    {id:'cv1', customerId:'c1', platform:'wa', unread:2, status:'open', assignedTo:null, msgs:[
+      ['customer','Halo kak, kaos hitam size L masih ada?', m(35)],
+      ['admin','Halo kak Siti! Masih ready kak, stok size L tinggal 5 pcs 🙏', m(30)],
+      ['customer','Oke kak, ukurannya gimana? LD berapa ya?', m(12)],
+      ['customer','Soalnya aku biasanya pakai XL di brand lain', m(11)]]},
+    {id:'cv2', customerId:'c2', platform:'shopee', unread:1, status:'open', assignedTo:null, msgs:[
+      ['customer','Gan, kapan dikirim? Sudah 2 hari', m(50)],
+      ['admin','Halo kak Andi, mohon maaf atas keterlambatannya 🙏', m(45)],
+      ['admin','Pesanan kakak sudah kami packing, hari ini dikirim via J&T ya', m(44)],
+      ['customer','Oke gan, tolong resinya ya kalau sudah dikirim', m(5)]]},
+    {id:'cv3', customerId:'c3', platform:'ig', unread:1, status:'open', assignedTo:null, msgs:[
+      ['customer','Price list dong kak', m(20)]]},
+    {id:'cv4', customerId:'c4', platform:'wa', unread:0, status:'replied', assignedTo:'t2', msgs:[
+      ['customer','Kak, brownies kukus ukuran 20x20 ready buat besok?', m(180)],
+      ['admin','Ready kak Dewi! Untuk besok bisa, mau topping keju atau coklat?', m(170)],
+      ['customer','Yang coklat 1 ya kak, bisa diantar jam 10?', m(150)],
+      ['admin','Bisa kak, saya catat ya. Total 85rb, bayar saat terima 🙏', m(140)]]},
+    {id:'cv5', customerId:'c5', platform:'tokopedia', unread:1, status:'open', assignedTo:null, msgs:[
+      ['customer','Kak ini ori atau KW ya?', m(60)],
+      ['admin','Original 100% kak, garansi uang kembali kalau terbukti KW', m(55)],
+      ['customer','Oke kak, size 42 ready?', m(40)]]},
+    {id:'cv6', customerId:'c6', platform:'ig', unread:2, status:'open', assignedTo:null, msgs:[
+      ['customer','Kak, dress bunga yang di story kemarin masih ada?', m(120)],
+      ['customer','Yang warna sage kak', m(110)]]},
+    {id:'cv7', customerId:'c7', platform:'wa', unread:0, status:'replied', assignedTo:null, msgs:[
+      ['customer','Cek resi kak, order kemarin', m(240)],
+      ['admin','Siap kak Agus! Resinya J&T: JP8823771120. Estimasi sampai 2 hari ya 🙏', m(230)]]},
+    {id:'cv8', customerId:'c8', platform:'shopee', unread:1, status:'open', assignedTo:'t2', msgs:[
+      ['customer','Kak bisa kurang? aku ambil 3 pcs', m(25)]]},
+    {id:'cv9', customerId:'c9', platform:'wa', unread:0, status:'done', assignedTo:null, msgs:[
+      ['customer','Kak alamat tokonya dimana ya?', m(1500)],
+      ['admin','Jl. Pandanaran No. 88, Semarang kak. Buka jam 09.00-21.00 🙏', m(1490)],
+      ['customer','Oke kak, meluncur!', m(1480)]]},
+    {id:'cv10', customerId:'c10', platform:'ig', unread:1, status:'open', assignedTo:null, msgs:[
+      ['customer','Kak PO berapa lama ya?', m(180)]]},
+    {id:'cv11', customerId:'c11', platform:'tokopedia', unread:0, status:'replied', assignedTo:null, msgs:[
+      ['customer','Kak, size chart sepatunya dong', m(300)],
+      ['admin','Ini kak size chartnya: 40=25.5cm, 41=26cm, 42=26.5cm, 43=27.5cm 🙏', m(290)]]},
+    {id:'cv12', customerId:'c12', platform:'wa', unread:1, status:'open', assignedTo:null, msgs:[
+      ['customer','Kak mau order pisang coklat lumer 2 box, bisa kirim ke Tembalang?', m(15)]]},
+    {id:'cv13', customerId:'c13', platform:'shopee', unread:1, status:'open', assignedTo:'t3', msgs:[
+      ['customer','Kak komplain, barang yang datang cacat jahitannya lepas', m(70)]]},
+    {id:'cv14', customerId:'c14', platform:'wa', unread:0, status:'replied', assignedTo:null, msgs:[
+      ['customer','Kak harga grosir kaos polos berapa? ambil 24 pcs', m(360)],
+      ['admin','Halo kak Sari! Grosir 24 pcs kena 45rb/pcs kak, bebas mix size & warna 🙏', m(350)],
+      ['customer','Wah murah, aku pikir-pikir dulu ya kak', m(330)]]},
+    {id:'cv15', customerId:'c15', platform:'tokopedia', unread:1, status:'open', assignedTo:null, msgs:[
+      ['customer','Kak, restock 50 pcs kaos hitam bisa minggu ini?', m(140)]]},
+  ];
+  const conversations = convDefs.map(d=>{
+    const last = d.msgs[d.msgs.length-1];
+    return {id:d.id, customerId:d.customerId, platform:d.platform, unread:d.unread, status:d.status, assignedTo:d.assignedTo, lastMessageAt:last[2], createdAt:last[2]-3600000};
+  });
+  const messages = convDefs.flatMap(d=>mkMsgs(d.id, d.msgs));
+  return {
+    v:1,
+    conversations, messages, customers,
+    quick_replies:[
+      {id:'q1', shortcut:'/cekresi', title:'Cek Resi', text:'Halo kak! Ini nomor resinya: JP8823771120 (J&T). Bisa dilacak di web/aplikasi ekspedisi ya kak 🙏'},
+      {id:'q2', shortcut:'/hargagrosir', title:'Harga Grosir', text:'Halo kak! Untuk grosir minimal 12 pcs harganya 48rb/pcs. Ambil 24 pcs cuma 45rb/pcs, bebas mix size & warna 🙏'},
+      {id:'q3', shortcut:'/alamattoko', title:'Alamat Toko', text:'Toko kami di Jl. Pandanaran No. 88, Semarang kak. Buka setiap hari jam 09.00–21.00. Ditunggu kedatangannya! 🙏'},
+      {id:'q4', shortcut:'/salam', title:'Salam Pembuka', text:'Halo kak! Terima kasih sudah menghubungi kami. Ada yang bisa kami bantu? 🙏'},
+    ],
+    team_members:[
+      {id:'t1', name:'Hendrawan', role:'Owner', shift:'Full', online:true},
+      {id:'t2', name:'Budi', role:'CS Pagi', shift:'08.00–16.00', online:true},
+      {id:'t3', name:'Siti', role:'CS Sore', shift:'14.00–22.00', online:false},
+    ],
+    channels:{
+      wa:{connected:false, token:''}, ig:{connected:false, token:''},
+      shopee:{connected:false, token:''}, tokopedia:{connected:false, token:''},
+    },
+    theme:'light', sound:true,
+  };
+}
+
+/* ================= AI ENGINE (mock — siap diganti OpenAI) ================= */
+// TODO: ganti dengan fetch ke /api/openai — kirim {messages: last5, customer}
+// lalu parse responsenya menjadi 3 varian: formal, genz, upsell.
+function generateAIResponse(conv, customer, messages){
+  const last5 = messages.slice(-5);
+  const text = last5.map(m=>String(m.text||'').toLowerCase()).join(' ');
+  const firstName = String(customer.name||'kak').replace('@','').split(/[\s._]+/)[0];
+  const name = firstName ? firstName[0].toUpperCase()+firstName.slice(1) : 'kak';
+  const product = customer.lastOrder && customer.lastOrder!=='-' ? customer.lastOrder : 'produk kami';
+
+  let intent = 'general';
+  if(/(cacat|rusak|komplain|kecewa|salah kirim|jelek)/.test(text)) intent='complaint';
+  else if(/(ready|stok|stock|tersedia|masih ada|kosong|habis)/.test(text)) intent='stock';
+  else if(/(harga|price|pricelist|berapa|mahar|spill|diskon|nego|kurang)/.test(text)) intent='price';
+  else if(/(kirim|dikirim|resi|ekspedisi|pengiriman|sampai|kapan|paket|cod)/.test(text)) intent='shipping';
+  else if(/(ukuran|size|sizing|muat|ld\b|lingkar|kebesaran|kekecilan)/.test(text)) intent='size';
+  else if(/(po\b|pre order|berapa lama|produksi)/.test(text)) intent='po';
+  else if(/(order|pesan|beli|checkout|mau |ambil|restock|grosir|keep)/.test(text)) intent='order';
+  else if(/(ori|original|kw|asli|palsu)/.test(text)) intent='authentic';
+  else if(/(halo|hai|pagi|siang|sore|malam|assalamu|kak\b)/.test(text)) intent='greeting';
+
+  const B = {
+    stock:{ formal:`Halo kak ${name}! Ready kak, untuk ${product} stoknya masih aman. Mau saya keep-kan dulu sebelum kehabisan? 🙏`,
+            genz:`Ready dong kak ${name}! 🔥 Stok ${product} masih ada nih, gas checkout sebelum diserbu yang lain~`,
+            upsell:`Ready kak ${name}! Stok ${product} tinggal sedikit. Btw kalau ambil 2 pcs ada diskon 10%, mau sekalian biar hemat ongkir?` },
+    price:{ formal:`Halo kak ${name}! Untuk ${product} harganya sudah termasuk packing rapi ya kak. Boleh tahu mau ambil berapa pcs? Nanti saya hitungkan yang terbaik 🙏`,
+            genz:`Spill harga nih kak ${name} 👀 ${product} lagi promo! Ambil 2 pcs auto lebih hemat, mau?`,
+            upsell:`Kak ${name}, ${product} harganya bersahabat banget. Kalau ambil paket bundling 3 pcs jatuhnya lebih murah 15% lho. Mau saya siapkan?` },
+    shipping:{ formal:`Halo kak ${name}! Pesanannya sedang kami siapkan dan akan dikirim hari ini juga. Nomor resi akan saya infokan segera setelah paket di-pickup ekspedisi 🙏`,
+            genz:`Siap kak ${name}! 📦 Paketnya lagi di-packing nih, hari ini juga dikirim. Resinya aku kabarin ASAP ya~`,
+            upsell:`Kak ${name}, paket dikirim hari ini! Biar sekalian hemat ongkir, mau tambah ${product} lagi? Mumpung masih bisa digabung 📦` },
+    size:{ formal:`Halo kak ${name}! Ini size chart ${product}: S (LD 96), M (LD 100), L (LD 104), XL (LD 108). Kalau biasa pakai XL di brand lain, saya sarankan ambil L saja kak biar pas 🙏`,
+            genz:`Nih kak ${name} size chartnya 📏 S=LD96, M=LD100, L=LD104, XL=LD108. Cutting-nya agak oversize, jadi aman ambil 1 size di bawah biasanya~`,
+            upsell:`Kak ${name}, cutting ${product} oversize jadi enak dipakai. Ambil 2 size sekalian kak buat ganti-ganti, yang kedua diskon 10% 😉` },
+    complaint:{ formal:`Halo kak ${name}, kami mohon maaf sebesar-besarnya atas ketidaknyamanannya 🙏 Boleh kirimkan foto/video kendalanya? Kami ganti baru / refund penuh, kakak tinggal pilih.`,
+            genz:`Duh maaf banget kak ${name} 😭 Kirim foto/videonya ya, langsung kami beresin — ganti baru atau refund full, kakak yang tentuin!`,
+            upsell:`Kak ${name}, maaf banget atas kendalanya 🙏 Kami ganti unit baru + kasih voucher 20rb buat order berikutnya sebagai permintaan maaf. Boleh minta foto kendalanya?` },
+    order:{ formal:`Siap kak ${name}! Untuk order ${product}, boleh konfirmasi jumlah dan alamat lengkapnya? Setelah itu saya buatkan total + nomor pembayarannya 🙏`,
+            genz:`Gas kak ${name}! 🔥 Mau order ${product} berapa pcs? Drop alamat lengkapnya, langsung aku proses sekarang~`,
+            upsell:`Siap kak ${name}! Mumpung order, sekalian ambil 2 pcs ${product} aja — ada harga spesial bundling. Mau saya hitungkan?` },
+    po:{ formal:`Halo kak ${name}! Untuk PO ${product} estimasi pengerjaannya 3–5 hari kerja ya kak. DP 50% dulu, pelunasan saat barang siap kirim 🙏`,
+            genz:`PO ${product} sekitar 3–5 hari kerja kak ${name} ⏳ DP 50% dulu aja, sisanya pas barang ready~`,
+            upsell:`Kak ${name}, PO 3–5 hari. Kalau mau yang ready stock, ada ${product} varian lain yang bisa dikirim hari ini juga lho!` },
+    authentic:{ formal:`Tenang kak ${name}, 100% original ya. Kami garansi uang kembali 2x lipat kalau terbukti tidak ori 🙏`,
+            genz:`Dijamin ori kak ${name}! 💯 Kalau KW, uang kembali 2x lipat. Berani garansi karena emang asli~`,
+            upsell:`100% ori kak ${name} + garansi uang kembali. Mumpung yakin, sekalian ambil 2 biar dapat harga spesial?` },
+    greeting:{ formal:`Halo kak ${name}! Terima kasih sudah menghubungi kami. Ada yang bisa kami bantu hari ini? 🙏`,
+            genz:`Halo juga kak ${name}! 👋 Mau tanya-tanya atau langsung checkout nih?~`,
+            upsell:`Halo kak ${name}! 👋 Lagi ada promo spesial minggu ini lho. Mau saya spill katalog terlarisnya?` },
+    general:{ formal:`Halo kak ${name}! Terima kasih sudah menghubungi kami. Boleh dijelaskan kebutuhannya? Saya bantu carikan yang paling cocok 🙏`,
+            genz:`Halo kak ${name}! 👋 Ceritain aja butuhnya apa, aku bantu pilihin yang paling pas~`,
+            upsell:`Halo kak ${name}! 👋 Btw ${product} lagi best seller minggu ini. Mau saya infoin promo yang lagi jalan?` },
+  };
+  const v = B[intent];
+  return [
+    {tone:'Ramah & Formal', text:v.formal},
+    {tone:'Santai & Gen Z', text:v.genz},
+    {tone:'To-the-point + Upselling', text:v.upsell},
+  ];
+}
+
+/* ================= INCOMING CHAT POOL (simulasi realtime) ================= */
+const INCOMING_POOL = [
+  {platform:'wa', name:'Rudi Hartono', phone:'0812-9900-1122', text:'Kak, hoodie abu size XL masih ready?'},
+  {platform:'ig', name:'@dinda.shp', phone:'-', text:'Kak spill harga totebag kanvas dong'},
+  {platform:'shopee', name:'Joko Susilo', phone:'0813-4455-6677', text:'Kak kapan dikirim ya? udah checkout tadi pagi'},
+  {platform:'tokopedia', name:'Lina Marlina', phone:'0821-3322-4455', text:'Kak ini bisa COD?'},
+  {platform:'wa', name:'Tania Putri', phone:'0857-8899-0011', text:'Kak, kaos oversize warna sage ada?'},
+  {platform:'ig', name:'@bayu.pratama', phone:'-', text:'Kak, open reseller nggak?'},
+  {platform:'shopee', name:'Nina Kurnia', phone:'0819-5566-7788', text:'Kak voucher tokonya kok nggak bisa dipakai ya?'},
+  {platform:'wa', name:'Yoga Saputra', phone:'0815-7788-9900', text:'Kak brownies yang mini ready berapa box?'},
+  {platform:'tokopedia', name:'Putri Ayu', phone:'0822-3344-5566', text:'Kak, sneakers putih size 39 ready?'},
+  {platform:'ig', name:'@salsa.bella', phone:'-', text:'Kak dress maroon yang di feed masih ada?'},
+  {platform:'wa', name:'Fajar Nugroho', phone:'0812-1122-3344', text:'Kak, kaos hitamnya bisa sablon nama?'},
+  {platform:'shopee', name:'Wulan Sari', phone:'0856-2233-4455', text:'Kak paketku kok belum gerak dari kemarin?'},
+];
+const REPLY_POOL = [
+  'Kak jadi gimana? ditunggu ya',
+  'Masih ada kak?',
+  'Kak dibaca dong 🙏',
+  'Oke kak, aku tunggu kabarnya ya',
+  'Kak, bisa kirim katalognya?',
+  'Halo kak, jadi ready kapan?',
+  'Kak tolong dibalas ya, butuh cepat',
+];
+
+/* ================= SOUND ================= */
+function playNotif(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type='sine'; o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.setValueAtTime(1174, ctx.currentTime+0.12);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.5);
+    o.start(); o.stop(ctx.currentTime+0.55);
+  }catch(e){}
+}
+
+/* ================= ACTIONS ================= */
+function getConv(db, id){ return db.conversations.find(c=>c.id===id); }
+function getCustomer(db, id){ return db.customers.find(c=>c.id===id); }
+function convMessages(db, convId){ return db.messages.filter(m=>m.convId===convId).sort((a,b)=>a.at-b.at); }
+
+function sendAdminMessage(convId, text, attachment){
+  if(!text.trim() && !attachment) return;
+  store.update(db=>{
+    const msgs=[...db.messages, {id:uid(), convId, from:'admin', text:text.trim(), at:nowTs(), attachment:attachment||null}];
+    const conversations=db.conversations.map(c=> c.id===convId ? {...c, unread:0, status:'replied', lastMessageAt:nowTs()} : c);
+    return {...db, messages:msgs, conversations};
+  });
+}
+
+// FASE 2.1 — chat baru masuk tiap 15 detik (atau dipicu tombol demo)
+function simulateIncomingChat(){
+  const beforeCount = store.db.messages.length;
+  store.update(db=>{
+    const isNew = Math.random() < 0.65 || db.conversations.length < 8;
+    let conversations=[...db.conversations], messages=[...db.messages], customers=[...db.customers];
+    let newConvId=null;
+    if(isNew){
+      const p = INCOMING_POOL[Math.floor(Math.random()*INCOMING_POOL.length)];
+      let cust = customers.find(c=>c.name===p.name);
+      if(!cust){
+        cust={id:uid(), name:p.name, phone:p.phone, address:'-', totalSpent:0, lastOrder:'-', followers:p.platform==='ig'?'300':null, orders:[], notes:'Chat masuk dari simulasi realtime.'};
+        customers=[...customers, cust];
+      }
+      newConvId=uid();
+      conversations=[{id:newConvId, customerId:cust.id, platform:p.platform, unread:1, status:'open', assignedTo:null, lastMessageAt:nowTs(), createdAt:nowTs()}, ...conversations];
+      messages=[...messages, {id:uid(), convId:newConvId, from:'customer', text:p.text, at:nowTs()}];
+    } else {
+      const open = conversations.filter(c=>c.status!=='done');
+      if(!open.length) return db;
+      const c = open[Math.floor(Math.random()*open.length)];
+      newConvId=c.id;
+      const t = REPLY_POOL[Math.floor(Math.random()*REPLY_POOL.length)];
+      messages=[...messages, {id:uid(), convId:c.id, from:'customer', text:t, at:nowTs()}];
+      conversations=conversations.map(x=> x.id===c.id
+        ? {...x, unread:x.unread+1, status: x.status==='done'?'open':x.status, lastMessageAt:nowTs()}
+        : x);
+      conversations.sort((a,b)=>b.lastMessageAt-a.lastMessageAt);
+    }
+    return {...db, conversations, messages, customers, _flashConv:newConvId};
+  });
+  const added = store.db.messages.length > beforeCount;
+  const fid = added ? store.db._flashConv : null;
+  if(added && store.db.sound) playNotif();
+  return fid;
+}
+
+// FASE 2.3 — assign chat ke admin
+function assignConversation(convId, memberId){
+  store.update(db=>({...db, conversations:db.conversations.map(c=> c.id===convId?{...c, assignedTo:memberId}:c)}));
+}
+function setConvStatus(convId, status){
+  store.update(db=>({...db, conversations:db.conversations.map(c=> c.id===convId?{...c, status}:c)}));
+}
+function markRead(convId){
+  store.update(db=>({...db, conversations:db.conversations.map(c=> c.id===convId?{...c, unread:0}:c)}));
+}
+function saveCustomerNote(customerId, notes){
+  store.update(db=>({...db, customers:db.customers.map(c=> c.id===customerId?{...c, notes}:c)}));
+}
+
+/* ================= ICON (React-safe lucide renderer) ================= */
+function LucideIcon({name, size=18, className='', strokeWidth=2}){
+  const ref = useRef(null);
+  useEffect(()=>{
+    if(!window.lucide || !ref.current) return;
+    const pascal = String(name).split('-').map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join('');
+    const node = window.lucide.icons[pascal];
+    ref.current.innerHTML='';
+    if(node){
+      const svg = window.lucide.createElement(node);
+      svg.setAttribute('width', size); svg.setAttribute('height', size);
+      svg.setAttribute('stroke-width', strokeWidth);
+      svg.setAttribute('class', 'lucide '+className);
+      ref.current.appendChild(svg);
+    }
+  },[name,size,className,strokeWidth]);
+  return <span ref={ref} className="inline-flex items-center justify-center shrink-0"/>;
+}
+
+/* ================= SHARED BITS ================= */
+function Avatar({name, id, size='w-11 h-11', text='text-sm'}){
+  return <div className={`${size} rounded-full ${avatarColor(id||name)} text-white font-bold flex items-center justify-center shrink-0 ${text}`}>{initials(name)}</div>;
+}
+function PlatformDot({platform, size=18}){
+  const p = PLATFORMS[platform];
+  return <span className="inline-flex items-center justify-center rounded-full shrink-0" style={{background:p.color, width:size, height:size}}>
+    <LucideIcon name={p.icon} size={size*0.6} className="text-white" strokeWidth={2.5}/>
+  </span>;
+}
+function Toasts({toasts}){
+  return <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-xs">
+    {toasts.map(t=><div key={t.id} className="anim-toast bg-slate-900 dark:bg-slate-800 text-white text-sm px-4 py-3 rounded-xl shadow-pop flex items-start gap-2">
+      <LucideIcon name={t.icon||'check-circle-2'} size={16} className="text-green-400 mt-0.5"/>
+      <span>{t.text}</span>
+    </div>)}
+  </div>;
+}
+let toastSeq=0;
+function useToasts(){
+  const [toasts,setToasts]=useState([]);
+  const push = useCallback((text,icon)=>{
+    const id=++toastSeq;
+    setToasts(ts=>[...ts,{id,text,icon}]);
+    setTimeout(()=>setToasts(ts=>ts.filter(t=>t.id!==id)), 2800);
+  },[]);
+  return {toasts, push};
+}
+
+/* ================= LANDING PAGE ================= */
+function LandingPage({goApp, theme, toggleTheme}){
+  const scrollTo = id => document.getElementById(id)?.scrollIntoView({behavior:'smooth'});
+  return <div className="min-h-screen bg-white dark:bg-slate-950">
+    {/* NAV */}
+    <nav className="sticky top-0 z-50 bg-white/80 dark:bg-slate-950/80 backdrop-blur border-b border-slate-200 dark:border-slate-800">
+      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white font-extrabold">B</div>
+          <span className="font-extrabold text-lg tracking-tight">BalasCepat</span>
+        </div>
+        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600 dark:text-slate-300">
+          <button onClick={()=>scrollTo('fitur')} className="hover:text-brand-600">Fitur</button>
+          <button onClick={()=>scrollTo('cara')} className="hover:text-brand-600">Cara Kerja</button>
+          <button onClick={()=>scrollTo('harga')} className="hover:text-brand-600">Harga</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={toggleTheme} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center" title="Dark mode">
+            <LucideIcon name={theme==='dark'?'sun':'moon'} size={18}/>
+          </button>
+          <button onClick={goApp} className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-5 py-2.5 rounded-full transition">Coba Gratis</button>
+        </div>
+      </div>
+    </nav>
+
+    {/* HERO */}
+    <header className="relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-brand-50 via-white to-violet-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900 pointer-events-none"/>
+      <div className="relative max-w-6xl mx-auto px-4 pt-16 pb-12 md:pt-24 md:pb-20 grid md:grid-cols-2 gap-10 items-center">
+        <div>
+          <div className="inline-flex items-center gap-2 bg-brand-50 dark:bg-brand-900/40 text-brand-700 dark:text-brand-300 text-xs font-bold px-3 py-1.5 rounded-full mb-5">
+            <LucideIcon name="zap" size={14}/> Dibuat untuk UMKM Indonesia
+          </div>
+          <h1 className="text-4xl md:text-5xl font-extrabold leading-[1.15] tracking-tight mb-5">
+            Balas Chat <span className="text-brand-600">3x Lebih Cepat</span>, Omzet Naik 40%
+          </h1>
+          <p className="text-lg text-slate-600 dark:text-slate-300 mb-3 font-medium">Semua Chat WA, IG, Shopee & Tokopedia dalam 1 Layar.</p>
+          <p className="text-slate-500 dark:text-slate-400 mb-8">Berhenti buka 4 HP. Satu inbox untuk semua chat jualan, dibantu AI yang bikinin jawaban otomatis, dan bisa di-assign ke tim CS kamu.</p>
+          <div className="flex flex-wrap gap-3">
+            <button onClick={goApp} className="bg-brand-600 hover:bg-brand-700 text-white font-bold px-7 py-3.5 rounded-full shadow-soft transition flex items-center gap-2">
+              <LucideIcon name="message-square" size={18}/> Buka Inbox Sekarang
+            </button>
+            <button onClick={()=>scrollTo('harga')} className="border-2 border-slate-200 dark:border-slate-700 hover:border-brand-400 font-bold px-7 py-3.5 rounded-full transition">Lihat Harga</button>
+          </div>
+          <div className="flex items-center gap-6 mt-8 text-sm text-slate-500 dark:text-slate-400">
+            <span className="flex items-center gap-1.5"><LucideIcon name="check-circle-2" size={16} className="text-green-500"/> Gratis 100 chat/bulan</span>
+            <span className="flex items-center gap-1.5"><LucideIcon name="check-circle-2" size={16} className="text-green-500"/> Tanpa kartu kredit</span>
+          </div>
+        </div>
+        {/* MOCK INBOX PREVIEW */}
+        <div className="anim-floaty relative">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-pop border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="w-3 h-3 rounded-full bg-red-400"/><div className="w-3 h-3 rounded-full bg-amber-400"/><div className="w-3 h-3 rounded-full bg-green-400"/>
+              <span className="ml-2 text-xs font-bold text-slate-400">BalasCepat Inbox</span>
+            </div>
+            <div className="grid grid-cols-[1fr_1.4fr]">
+              <div className="border-r border-slate-100 dark:border-slate-800 p-2 space-y-1">
+                {[['Siti Rahayu','wa','Kak, kaos hitam size L masih ada?','2','bg-violet-500'],['@ratnaa.prm','ig','Price list dong kak','1','bg-blue-500'],['Andi P.','shopee','Gan, kapan dikirim?','','bg-rose-500']].map((r,i)=>
+                  <div key={i} className={`flex items-center gap-2 p-2 rounded-xl ${i===0?'bg-brand-50 dark:bg-brand-900/30':''}`}>
+                    <div className={`w-8 h-8 rounded-full ${r[4]} text-white text-xs font-bold flex items-center justify-center shrink-0`}>{r[0][0]}</div>
+                    <div className="min-w-0 flex-1"><div className="text-xs font-bold truncate">{r[0]}</div><div className="text-[11px] text-slate-400 truncate">{r[2]}</div></div>
+                    {r[3] && <span className="bg-brand-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{r[3]}</span>}
+                  </div>)}
+              </div>
+              <div className="p-3 space-y-2 bg-slate-50 dark:bg-slate-900/50">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-tl-md px-3 py-2 text-xs shadow-sm max-w-[85%]">Kak, kaos hitam size L masih ada?</div>
+                <div className="bg-[#d9fdd3] dark:bg-green-950/60 rounded-2xl rounded-tr-md px-3 py-2 text-xs shadow-sm max-w-[85%] ml-auto">Ready kak! Stok size L tinggal 5 pcs 🙏</div>
+                <div className="bg-white dark:bg-slate-800 border border-brand-200 dark:border-brand-800 rounded-2xl px-3 py-2 text-xs shadow-sm">
+                  <div className="flex items-center gap-1 text-brand-600 font-bold mb-1"><LucideIcon name="sparkles" size={12}/> AI Suggestion</div>
+                  Ukurannya LD 104 kak, cutting oversize...
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="absolute -bottom-4 -left-4 bg-white dark:bg-slate-900 rounded-xl shadow-pop border border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-950 flex items-center justify-center"><LucideIcon name="trending-up" size={20} className="text-green-600"/></div>
+            <div><div className="font-extrabold text-sm">+40% omzet</div><div className="text-xs text-slate-400">rata-rata pengguna</div></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    {/* BENEFITS */}
+    <section id="fitur" className="max-w-6xl mx-auto px-4 py-16">
+      <h2 className="text-3xl font-extrabold text-center mb-3">Kenapa UMKM pindah ke BalasCepat?</h2>
+      <p className="text-center text-slate-500 dark:text-slate-400 mb-10">Chat telat 5 menit = batal beli. Kami bikin kamu selalu tercepat.</p>
+      <div className="grid md:grid-cols-3 gap-6">
+        {[
+          ['sparkles','Auto-Reply AI','AI baca chat pelanggan lalu bikinkan 3 opsi jawaban: formal, santai, atau upselling. Klik, edit dikit, kirim.','from-violet-500 to-purple-600'],
+          ['users','Assign ke Tim CS','Satu chat = satu penanggung jawab. Assign ke Budi shift pagi atau Siti shift sore. Nggak ada lagi chat yang ke-skip.','from-blue-500 to-cyan-600'],
+          ['bar-chart-3','Laporan Performa','Pantau chat masuk, kecepatan balas, dan chat selesai per admin. Tahu persis siapa CS tercepat.','from-amber-500 to-orange-600'],
+          ['zap','Balasan Cepat','Template /cekresi, /hargagrosir, /alamattoko. Jawab pertanyaan berulang dalam 1 klik.','from-green-500 to-emerald-600'],
+          ['smartphone','Semua Channel, 1 Layar','WhatsApp, Instagram DM, Shopee Chat, Tokopedia Chat — semua numpuk rapi di satu inbox.','from-pink-500 to-rose-600'],
+          ['bell-ring','Notifikasi Realtime','Chat baru langsung muncul di paling atas + bunyi notif. Nggak ada lagi chat tenggelam.','from-indigo-500 to-blue-600'],
+        ].map((f,i)=>
+          <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-soft hover:shadow-pop hover:-translate-y-1 transition">
+            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${f[3]} text-white flex items-center justify-center mb-4`}><LucideIcon name={f[0]} size={22}/></div>
+            <h3 className="font-extrabold text-lg mb-2">{f[1]}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{f[2]}</p>
+          </div>)}
+      </div>
+    </section>
+
+    {/* CARA KERJA */}
+    <section id="cara" className="bg-slate-50 dark:bg-slate-900/50 py-16">
+      <div className="max-w-6xl mx-auto px-4">
+        <h2 className="text-3xl font-extrabold text-center mb-10">Mulai dalam 3 langkah</h2>
+        <div className="grid md:grid-cols-3 gap-6">
+          {[['plug','1. Hubungkan Channel','Masukkan token API WA Business, IG, Shopee & Tokopedia. Simulasi koneksi 10 detik.'],
+            ['message-square','2. Chat Masuk Otomatis','Semua chat dari 4 platform numpuk rapi di satu inbox, realtime.'],
+            ['sparkles','3. Balas Pakai AI','Klik "Bantu Jawab dengan AI", pilih gaya bahasa, kirim. Closing 3x lebih cepat.']].map((s,i)=>
+            <div key={i} className="text-center">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-brand-600 text-white flex items-center justify-center mb-4 shadow-soft"><LucideIcon name={s[0]} size={28}/></div>
+              <h3 className="font-extrabold mb-2">{s[1]}</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{s[2]}</p>
+            </div>)}
+        </div>
+        <div className="text-center mt-10">
+          <button onClick={goApp} className="bg-brand-600 hover:bg-brand-700 text-white font-bold px-8 py-3.5 rounded-full shadow-soft transition">Coba Inbox Demo Sekarang</button>
+        </div>
+      </div>
+    </section>
+
+    {/* PRICING */}
+    <section id="harga" className="max-w-5xl mx-auto px-4 py-16">
+      <h2 className="text-3xl font-extrabold text-center mb-3">Harga jujur untuk UMKM</h2>
+      <p className="text-center text-slate-500 dark:text-slate-400 mb-10">Mulai gratis. Upgrade kalau sudah panen closing.</p>
+      <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200 dark:border-slate-800">
+          <h3 className="font-extrabold text-lg">Gratis</h3>
+          <div className="my-4"><span className="text-4xl font-extrabold">Rp0</span><span className="text-slate-400">/bulan</span></div>
+          <ul className="space-y-3 text-sm text-slate-600 dark:text-slate-300 mb-8">
+            {[['100 chat/bulan'],['2 channel (WA + IG)'],['1 admin'],['Balasan cepat (5 template)']].map((x,i)=>
+              <li key={i} className="flex gap-2"><LucideIcon name="check" size={16} className="text-green-500 mt-0.5"/>{x[0]}</li>)}
+          </ul>
+          <button onClick={goApp} className="w-full border-2 border-slate-200 dark:border-slate-700 hover:border-brand-500 font-bold py-3 rounded-full transition">Mulai Gratis</button>
+        </div>
+        <div className="relative bg-slate-900 dark:bg-brand-950 rounded-2xl p-8 text-white shadow-pop border-2 border-brand-500">
+          <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-xs font-bold px-4 py-1 rounded-full">PALING LARIS</span>
+          <h3 className="font-extrabold text-lg">Pro</h3>
+          <div className="my-4"><span className="text-4xl font-extrabold">Rp149rb</span><span className="text-slate-400">/bulan</span></div>
+          <ul className="space-y-3 text-sm text-slate-300 mb-8">
+            {[['Unlimited chat'],['Semua channel (WA, IG, Shopee, Tokopedia)'],['Unlimited admin + assign'],['Auto-reply AI (3 gaya bahasa)'],['Laporan performa tim'],['Prioritas support']].map((x,i)=>
+              <li key={i} className="flex gap-2"><LucideIcon name="check" size={16} className="text-green-400 mt-0.5"/>{x[0]}</li>)}
+          </ul>
+          <button onClick={goApp} className="w-full bg-brand-600 hover:bg-brand-500 font-bold py-3 rounded-full transition">Coba Pro 14 Hari Gratis</button>
+        </div>
+      </div>
+    </section>
+
+    <footer className="border-t border-slate-200 dark:border-slate-800 py-8">
+      <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-slate-400">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-xs font-extrabold">B</div>
+          <span className="font-bold text-slate-600 dark:text-slate-300">BalasCepat</span> © 2026 — 1 Inbox Untuk Semua Chat Jualan
+        </div>
+        <button onClick={goApp} className="hover:text-brand-600 font-medium">Buka Aplikasi →</button>
+      </div>
+    </footer>
+  </div>;
+}
+
+/* ================= KOLOM 1: INBOX LIST ================= */
+const FILTERS = [
+  {id:'all', label:'Semua'},
+  {id:'unread', label:'Belum Dibaca'},
+  {id:'wa', label:'WA'},
+  {id:'ig', label:'IG'},
+  {id:'shopee', label:'Shopee'},
+  {id:'needReply', label:'Perlu Balas'},
+];
+function InboxList({db, activeId, onSelect, filter, setFilter, search, setSearch, onNewDummy, flashId}){
+  const convs = useMemo(()=>{
+    let list=[...db.conversations];
+    if(filter==='unread') list=list.filter(c=>c.unread>0);
+    else if(filter==='needReply') list=list.filter(c=>{ const ms=convMessages(db,c.id); const last=ms[ms.length-1]; return last && last.from==='customer' && c.status!=='done'; });
+    else if(PLATFORMS[filter]) list=list.filter(c=>c.platform===filter);
+    if(search.trim()){
+      const q=search.trim().toLowerCase();
+      list=list.filter(c=>{ const cust=getCustomer(db,c.customerId); const ms=convMessages(db,c.id);
+        return (cust?.name||'').toLowerCase().includes(q) || ms.some(m=>(m.text||'').toLowerCase().includes(q)); });
+    }
+    return list.sort((a,b)=>b.lastMessageAt-a.lastMessageAt);
+  },[db,filter,search]);
+  const unreadTotal = db.conversations.reduce((s,c)=>s+c.unread,0);
+
+  return <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
+    <div className="p-3 pb-2">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <h2 className="font-extrabold text-lg flex items-center gap-2">Inbox
+          {unreadTotal>0 && <span className="bg-brand-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{unreadTotal}</span>}
+        </h2>
+        <button onClick={onNewDummy} title="Buat Chat Dummy Baru (demo)" className="flex items-center gap-1 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 dark:bg-brand-900/40 hover:bg-brand-100 px-2.5 py-1.5 rounded-full transition">
+          <LucideIcon name="zap" size={13}/> Chat Dummy
+        </button>
+      </div>
+      <div className="relative mb-2">
+        <LucideIcon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari pelanggan / pesan..."
+          className="w-full bg-slate-100 dark:bg-slate-800 rounded-full pl-9 pr-3 py-2 text-sm placeholder:text-slate-400 focus:ring-2 ring-brand-500"/>
+      </div>
+      <div className="flex gap-1.5 overflow-x-auto pb-1 no-select">
+        {FILTERS.map(f=>{
+          const active = filter===f.id;
+          return <button key={f.id} onClick={()=>setFilter(f.id)}
+            className={`whitespace-nowrap text-xs font-bold px-3 py-1.5 rounded-full transition ${active?'bg-slate-900 dark:bg-white text-white dark:text-slate-900':'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+            {f.label}</button>;
+        })}
+      </div>
+    </div>
+    <div className="flex-1 overflow-y-auto px-2 pb-3">
+      {convs.length===0 && <div className="text-center py-12 text-slate-400">
+        <LucideIcon name="inbox" size={40} className="mx-auto mb-3 opacity-50"/>
+        <p className="text-sm font-medium">Tidak ada percakapan</p>
+        <button onClick={onNewDummy} className="mt-3 text-xs font-bold text-brand-600 hover:underline">+ Buat chat dummy untuk demo</button>
+      </div>}
+      {convs.map(c=>{
+        const cust=getCustomer(db,c.customerId)||{name:'?'};
+        const ms=convMessages(db,c.id);
+        const last=ms[ms.length-1];
+        const p=PLATFORMS[c.platform];
+        const active=c.id===activeId;
+        const member=db.team_members.find(t=>t.id===c.assignedTo);
+        return <button key={c.id} onClick={()=>onSelect(c.id)}
+          className={`w-full text-left flex gap-3 p-3 rounded-2xl mb-1 transition relative ${active?'bg-brand-50 dark:bg-brand-900/30':'hover:bg-slate-50 dark:hover:bg-slate-800/60'} ${flashId===c.id?'anim-new-chat':''}`}>
+          <div className="relative shrink-0">
+            <Avatar name={cust.name} id={cust.id}/>
+            <span className="absolute -bottom-0.5 -right-0.5"><PlatformDot platform={c.platform} size={20}/></span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-sm truncate">{esc(cust.name)}</span>
+              <span className="text-[11px] text-slate-400 shrink-0">{timeAgo(c.lastMessageAt)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-0.5">
+              <p className={`text-[13px] truncate ${c.unread>0?'font-semibold text-slate-700 dark:text-slate-200':'text-slate-400'}`}>
+                {last?.from==='admin'?'✓✓ ':''}{esc(last?.text||'')}
+              </p>
+              {c.unread>0 && <span className="bg-brand-600 text-white text-[11px] font-bold min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center shrink-0">{c.unread}</span>}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${p.chipBg}`}>{p.short}</span>
+              {c.status==='done' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-500">Selesai</span>}
+              {member && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 flex items-center gap-0.5"><LucideIcon name="user" size={10}/>{member.name}</span>}
+            </div>
+          </div>
+        </button>;
+      })}
+    </div>
+  </div>;
+}
+
+/* ================= KOLOM 2: JENDELA CHAT ================= */
+const EMOJIS = ['😀','😁','😂','🤣','😊','😍','😘','😎','🤔','😅','😭','😡','👍','👎','🙏','👋','👌','✌️','🤝','👏','❤️','🧡','💛','💚','💙','💜','🔥','✨','🎉','🎁','💯','✅','❌','⭐','💰','🛒','🛍️','📦','🚚','💨','⏰','📍','📞','💬','😴','🤗','😇','🥰','😋','🤤'];
+const PRODUCTS = [
+  {name:'Kaos Hitam Premium', price:129000, grad:'from-slate-700 to-slate-900'},
+  {name:'Brownies Kukus 20x20', price:85000, grad:'from-amber-600 to-amber-800'},
+  {name:'Dress Bunga Sage', price:189000, grad:'from-emerald-500 to-teal-700'},
+];
+function ChatWindow({db, convId, onBack, onShowInfo, draft, setDraft, pushToast}){
+  const conv = db.conversations.find(c=>c.id===convId);
+  const [showEmoji,setShowEmoji]=useState(false);
+  const [showAttach,setShowAttach]=useState(false);
+  const [showAssign,setShowAssign]=useState(false);
+  const [attachPreview,setAttachPreview]=useState(null);
+  const fileRef=useRef(null);
+  const bottomRef=useRef(null);
+  const inputRef=useRef(null);
+  const msgs = conv?convMessages(db,conv.id):[];
+  const cust = conv?getCustomer(db,conv.customerId):null;
+  const p = conv?PLATFORMS[conv.platform]:null;
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:'smooth'}); },[msgs.length, convId]);
+  useEffect(()=>{ if(conv && conv.unread>0) markRead(conv.id); },[convId, conv?.unread]);
+
+  if(!conv) return <div className="hidden md:flex flex-1 flex-col items-center justify-center bg-slate-50 dark:bg-slate-950/50 text-center p-8">
+    <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center mb-5 shadow-soft">
+      <LucideIcon name="messages-square" size={44} className="text-white"/>
+    </div>
+    <h3 className="font-extrabold text-xl mb-2">Pilih percakapan untuk mulai membalas</h3>
+    <p className="text-sm text-slate-400 max-w-xs">Semua chat dari WhatsApp, Instagram, Shopee & Tokopedia numpuk rapi di sini.</p>
+  </div>;
+
+  const doSend = ()=>{
+    if(!draft.trim() && !attachPreview) return;
+    sendAdminMessage(conv.id, draft, attachPreview);
+    setDraft(''); setAttachPreview(null); setShowEmoji(false);
+    pushToast('Pesan terkirim ✓✓','send');
+  };
+  const insertAtCursor = txt => {
+    const el=inputRef.current;
+    if(el){ const s=el.selectionStart??draft.length, e=el.selectionEnd??draft.length;
+      setDraft(draft.slice(0,s)+txt+draft.slice(e));
+      setTimeout(()=>{el.focus(); el.setSelectionRange(s+txt.length, s+txt.length);},0);
+    } else setDraft(draft+txt);
+  };
+  const onFile = e=>{
+    const f=e.target.files?.[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ setAttachPreview({type:'image', src:r.result, name:f.name}); setShowAttach(false); };
+    r.readAsDataURL(f);
+  };
+  const quickReplies = db.quick_replies.slice(0,4);
+  const assignedMember = db.team_members.find(t=>t.id===conv.assignedTo);
+
+  return <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950/60 min-w-0">
+    {/* HEADER */}
+    <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-2.5 flex items-center gap-3 shrink-0">
+      <button onClick={onBack} className="md:hidden w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center"><LucideIcon name="chevron-left" size={20}/></button>
+      <div className="relative"><Avatar name={cust?.name} id={cust?.id}/><span className="absolute -bottom-0.5 -right-0.5"><PlatformDot platform={conv.platform} size={20}/></span></div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <h3 className="font-extrabold truncate">{esc(cust?.name)}</h3>
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${p.chipBg}`}>{p.name}</span>
+        </div>
+        <p className="text-xs text-slate-400 truncate">
+          {cust?.phone && cust.phone!=='-' ? cust.phone+' • ' : ''}{cust?.followers ? cust.followers+' followers • ' : ''}{conv.platform==='wa'?'Online':'Aktif baru-baru ini'}
+        </p>
+      </div>
+      <div className="hidden sm:flex items-center gap-1.5">
+        {conv.status!=='done'
+          ? <button onClick={()=>{setConvStatus(conv.id,'done'); pushToast('Percakapan ditandai selesai','check-circle-2');}} className="flex items-center gap-1 text-xs font-bold bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-200 px-3 py-2 rounded-full transition"><LucideIcon name="check-check" size={14}/> Selesai</button>
+          : <button onClick={()=>setConvStatus(conv.id,'open')} className="flex items-center gap-1 text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-3 py-2 rounded-full"><LucideIcon name="rotate-ccw" size={14}/> Buka lagi</button>}
+        <div className="relative">
+          <button onClick={()=>setShowAssign(v=>!v)} className="flex items-center gap-1 text-xs font-bold bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 hover:bg-violet-200 px-3 py-2 rounded-full transition">
+            <LucideIcon name="user-plus" size={14}/> {assignedMember?assignedMember.name:'Assign'}
+          </button>
+          {showAssign && <div className="absolute right-0 top-11 z-30 bg-white dark:bg-slate-800 rounded-xl shadow-pop border border-slate-200 dark:border-slate-700 p-1.5 w-48">
+            <p className="text-[11px] font-bold text-slate-400 px-2 py-1">Assign ke:</p>
+            {db.team_members.map(t=><button key={t.id} onClick={()=>{assignConversation(conv.id,t.id); setShowAssign(false); pushToast(`Chat di-assign ke ${t.name}`,'user-check');}}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-sm">
+              <Avatar name={t.name} id={t.id} size="w-7 h-7" text="text-[10px]"/>
+              <span className="font-semibold">{t.name}</span><span className="text-[11px] text-slate-400">{t.role}</span>
+              {conv.assignedTo===t.id && <LucideIcon name="check" size={14} className="ml-auto text-green-500"/>}
+            </button>)}
+            {conv.assignedTo && <button onClick={()=>{assignConversation(conv.id,null); setShowAssign(false);}} className="w-full text-left px-2 py-2 text-xs font-bold text-slate-400 hover:text-red-500">Hapus assign</button>}
+          </div>}
+        </div>
+      </div>
+      <button onClick={onShowInfo} className="md:hidden w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center"><LucideIcon name="info" size={18}/></button>
+    </div>
+
+    {/* MESSAGES */}
+    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5" onClick={()=>{setShowEmoji(false); setShowAttach(false);}}>
+      {msgs.map(m=>{
+        const mine=m.from==='admin';
+        return <div key={m.id} className={`flex ${mine?'justify-end':'justify-start'} anim-msg`}>
+          <div className={`max-w-[78%] px-3.5 py-2.5 rounded-2xl text-[14px] leading-relaxed shadow-sm border ${mine?`${p.adminBubble} rounded-tr-md`:'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-tl-md'}`}>
+            {m.attachment?.type==='image' && <img src={m.attachment.src} alt="lampiran" className="rounded-xl max-h-48 mb-1.5 cursor-pointer" onClick={e=>{e.stopPropagation(); window.open(m.attachment.src,'_blank');}}/>}
+            {m.attachment?.type==='product' && <div className="flex items-center gap-2.5 bg-white dark:bg-slate-900 rounded-xl p-2 mb-1.5 border border-slate-200 dark:border-slate-700">
+              <div className={`w-11 h-11 rounded-lg bg-gradient-to-br ${m.attachment.grad} flex items-center justify-center shrink-0`}><LucideIcon name="shopping-bag" size={20} className="text-white"/></div>
+              <div><div className="text-xs font-bold">{m.attachment.name}</div><div className="text-xs font-extrabold text-brand-600">{rupiah(m.attachment.price)}</div></div>
+            </div>}
+            {m.text && <p className="whitespace-pre-wrap break-words">{esc(m.text)}</p>}
+            <div className={`flex items-center justify-end gap-1 mt-1 text-[10px] ${mine?'text-slate-500':'text-slate-400'}`}>
+              {clockTime(m.at)}{mine && <LucideIcon name="check-check" size={13} className="text-sky-500"/>}
+            </div>
+          </div>
+        </div>;
+      })}
+      <div ref={bottomRef}/>
+    </div>
+
+    {/* QUICK REPLY BAR */}
+    <div className="px-3 pt-1 shrink-0">
+      <div className="flex gap-1.5 overflow-x-auto pb-1.5">
+        {quickReplies.map(q=><button key={q.id} onClick={()=>insertAtCursor(q.text)} title={q.text}
+          className="whitespace-nowrap text-xs font-bold text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-900/40 hover:bg-brand-100 dark:hover:bg-brand-900/70 border border-brand-200 dark:border-brand-800 px-3 py-1.5 rounded-full transition">
+          {q.shortcut}</button>)}
+      </div>
+    </div>
+
+    {/* INPUT */}
+    <div className="p-3 pt-1 shrink-0 relative">
+      {attachPreview && <div className="mb-2 relative inline-block">
+        <img src={attachPreview.src} className="h-20 rounded-xl border border-slate-200 dark:border-slate-700" alt="preview"/>
+        <button onClick={()=>setAttachPreview(null)} className="absolute -top-2 -right-2 w-6 h-6 bg-slate-900 text-white rounded-full flex items-center justify-center"><LucideIcon name="x" size={13}/></button>
+      </div>}
+      {showEmoji && <div className="absolute bottom-[72px] left-3 z-30 bg-white dark:bg-slate-800 rounded-2xl shadow-pop border border-slate-200 dark:border-slate-700 p-3 w-[280px]">
+        <div className="grid grid-cols-8 gap-1">{EMOJIS.map(e=><button key={e} onClick={()=>insertAtCursor(e)} className="text-xl hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg p-1 transition">{e}</button>)}</div>
+      </div>}
+      {showAttach && <div className="absolute bottom-[72px] left-3 z-30 bg-white dark:bg-slate-800 rounded-2xl shadow-pop border border-slate-200 dark:border-slate-700 p-2 w-64">
+        <button onClick={()=>{fileRef.current?.click();}} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-sm font-semibold"><LucideIcon name="image" size={18} className="text-violet-500"/> Upload Foto</button>
+        <div className="border-t border-slate-100 dark:border-slate-700 my-1"/>
+        <p className="text-[11px] font-bold text-slate-400 px-3 py-1">Kirim info produk:</p>
+        {PRODUCTS.map(pr=><button key={pr.name} onClick={()=>{sendAdminMessage(conv.id,'', {type:'product',...pr}); setShowAttach(false); pushToast('Info produk terkirim','shopping-bag');}}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700">
+          <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${pr.grad} flex items-center justify-center shrink-0`}><LucideIcon name="shopping-bag" size={16} className="text-white"/></div>
+          <div className="text-left"><div className="text-xs font-bold">{pr.name}</div><div className="text-[11px] font-extrabold text-brand-600">{rupiah(pr.price)}</div></div>
+        </button>)}
+      </div>}
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile}/>
+      <div className="flex items-end gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-1.5 shadow-sm">
+        <button onClick={()=>{setShowAttach(v=>!v); setShowEmoji(false);}} className="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500" title="Attach foto/produk"><LucideIcon name="paperclip" size={19}/></button>
+        <button onClick={()=>{setShowEmoji(v=>!v); setShowAttach(false);}} className="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500" title="Emoji"><LucideIcon name="smile" size={19}/></button>
+        <textarea ref={inputRef} value={draft} onChange={e=>setDraft(e.target.value)}
+          onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); doSend();} }}
+          placeholder={`Balas ${cust?.name?.split(' ')[0]||'pelanggan'}...`} rows={1}
+          className="flex-1 bg-transparent px-2 py-2.5 text-sm resize-none max-h-28 placeholder:text-slate-400"/>
+        <button onClick={doSend} disabled={!draft.trim()&&!attachPreview} className="w-10 h-10 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition" title="Kirim">
+          <LucideIcon name="send" size={18}/>
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ================= KOLOM 3: INFO PELANGGAN & AI ================= */
+function InfoPanel({db, convId, onInsertDraft, pushToast}){
+  const conv=db.conversations.find(c=>c.id===convId);
+  const [aiOpts,setAiOpts]=useState(null);
+  const [aiLoading,setAiLoading]=useState(false);
+  const [editingNote,setEditingNote]=useState(false);
+  const [noteDraft,setNoteDraft]=useState('');
+  useEffect(()=>{ setAiOpts(null); setAiLoading(false); setEditingNote(false); },[convId]);
+
+  if(!conv) return <div className="hidden md:flex w-full h-full items-center justify-center bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-6 text-center">
+    <p className="text-sm text-slate-400">Info pelanggan & AI Assistant<br/>muncul di sini</p>
+  </div>;
+
+  const cust=getCustomer(db,conv.customerId)||{};
+  const msgs=convMessages(db,conv.id);
+  const p=PLATFORMS[conv.platform];
+
+  const runAI=()=>{
+    setAiLoading(true); setAiOpts(null);
+    setTimeout(()=>{
+      const opts=generateAIResponse(conv, cust, msgs);
+      setAiOpts(opts); setAiLoading(false);
+    }, 900);
+  };
+  const pickOpt=o=>{ onInsertDraft(o.text); pushToast('Jawaban AI masuk ke kotak balasan ✍️','sparkles'); };
+
+  return <div className="h-full overflow-y-auto bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-4 space-y-4">
+    {/* INFO PELANGGAN */}
+    <div>
+      <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5"><LucideIcon name="user" size={14}/> Info Pelanggan</h4>
+      <div className="flex items-center gap-3 mb-3">
+        <Avatar name={cust.name} id={cust.id} size="w-14 h-14" text="text-lg"/>
+        <div className="min-w-0">
+          <div className="font-extrabold truncate">{esc(cust.name)}</div>
+          <div className="flex items-center gap-1 mt-0.5"><PlatformDot platform={conv.platform} size={16}/><span className="text-xs text-slate-500">{p.name}</span></div>
+        </div>
+      </div>
+      <div className="space-y-2 text-sm">
+        <div className="flex gap-2 items-start"><LucideIcon name="phone" size={15} className="text-slate-400 mt-0.5 shrink-0"/><span className="text-slate-600 dark:text-slate-300">{esc(cust.phone||'-')}</span></div>
+        <div className="flex gap-2 items-start"><LucideIcon name="map-pin" size={15} className="text-slate-400 mt-0.5 shrink-0"/><span className="text-slate-600 dark:text-slate-300">{esc(cust.address||'-')}</span></div>
+        <div className="flex gap-2 items-center"><LucideIcon name="wallet" size={15} className="text-slate-400 shrink-0"/><span>Total Belanja: <b className="text-brand-600">{rupiah(cust.totalSpent)}</b></span></div>
+        <div className="flex gap-2 items-center"><LucideIcon name="shopping-cart" size={15} className="text-slate-400 shrink-0"/><span>Pesanan Terakhir: <b>{esc(cust.lastOrder||'-')}</b></span></div>
+      </div>
+    </div>
+
+    {/* RIWAYAT PESANAN */}
+    <div>
+      <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5"><LucideIcon name="history" size={14}/> Riwayat Pesanan</h4>
+      {cust.orders?.length
+        ? <div className="space-y-1.5">{cust.orders.slice(0,3).map((o,i)=>
+            <div key={i} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/70 rounded-xl px-3 py-2 text-sm">
+              <div><div className="font-semibold text-[13px]">{esc(o.item)}</div><div className="text-[11px] text-slate-400">{o.date}</div></div>
+              <div className="font-extrabold text-[13px]">{rupiah(o.price)}</div>
+            </div>)}
+          </div>
+        : <p className="text-xs text-slate-400 italic">Belum ada riwayat pesanan.</p>}
+    </div>
+
+    {/* CATATAN */}
+    <div>
+      <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5"><LucideIcon name="sticky-note" size={14}/> Catatan Tim</h4>
+      {editingNote
+        ? <div>
+            <textarea value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} rows={3} placeholder="Contoh: Pelanggan ini suka komplain ukuran, hati-hati..."
+              className="w-full text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5"/>
+            <div className="flex gap-2 mt-2">
+              <button onClick={()=>{saveCustomerNote(cust.id, noteDraft); setEditingNote(false); pushToast('Catatan tersimpan','check');}} className="text-xs font-bold bg-brand-600 text-white px-3 py-1.5 rounded-full">Simpan</button>
+              <button onClick={()=>setEditingNote(false)} className="text-xs font-bold text-slate-400 px-3 py-1.5">Batal</button>
+            </div>
+          </div>
+        : <div onClick={()=>{setNoteDraft(cust.notes||''); setEditingNote(true);}} className="cursor-pointer bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl p-3 text-[13px] text-slate-600 dark:text-slate-300 hover:border-amber-300 transition">
+            {cust.notes ? esc(cust.notes) : <span className="italic text-slate-400">+ Tambah catatan tentang pelanggan ini...</span>}
+          </div>}
+    </div>
+
+    <div className="border-t border-slate-200 dark:border-slate-800"/>
+
+    {/* AI ASSISTANT */}
+    <div>
+      <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+        <LucideIcon name="sparkles" size={14} className="text-violet-500"/> AI Assistant
+        <span className="ml-auto text-[10px] bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 font-bold px-2 py-0.5 rounded-full">BETA</span>
+      </h4>
+      <button onClick={runAI} disabled={aiLoading}
+        className="w-full bg-gradient-to-r from-violet-600 to-brand-600 hover:from-violet-700 hover:to-brand-700 disabled:opacity-60 text-white font-bold text-sm py-3 rounded-2xl shadow-soft transition flex items-center justify-center gap-2">
+        {aiLoading ? <><span className="flex gap-1"><span className="typing-dot w-1.5 h-1.5 bg-white rounded-full"/><span className="typing-dot w-1.5 h-1.5 bg-white rounded-full"/><span className="typing-dot w-1.5 h-1.5 bg-white rounded-full"/></span> AI sedang membaca chat...</>
+        : <><LucideIcon name="wand-2" size={17}/> Bantu Jawab dengan AI</>}
+      </button>
+      <p className="text-[11px] text-slate-400 mt-1.5 text-center">AI membaca 5 pesan terakhir, lalu buatkan 3 opsi jawaban</p>
+
+      {aiOpts && <div className="space-y-2.5 mt-3">
+        {aiOpts.map((o,i)=>
+          <div key={i} className="anim-msg border border-violet-200 dark:border-violet-900 bg-violet-50/60 dark:bg-violet-950/30 rounded-2xl p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-extrabold text-violet-700 dark:text-violet-300">Opsi {i+1}: {o.tone}</span>
+              <button onClick={()=>pickOpt(o)} className="text-[11px] font-bold text-white bg-violet-600 hover:bg-violet-700 px-2.5 py-1 rounded-full transition flex items-center gap-1"><LucideIcon name="arrow-down-to-line" size={12}/> Pakai</button>
+            </div>
+            <p className="text-[13px] leading-relaxed text-slate-700 dark:text-slate-200">{o.text}</p>
+          </div>)}
+        <button onClick={runAI} className="w-full text-xs font-bold text-violet-600 hover:text-violet-700 py-1.5 flex items-center justify-center gap-1"><LucideIcon name="refresh-cw" size={13}/> Generate ulang</button>
+      </div>}
+    </div>
+  </div>;
+}
+
+/* ================= PENGATURAN ================= */
+const CHANNEL_META = {
+  wa:{name:'WhatsApp Business', desc:'Hubungkan via WhatsApp Business API / Cloud API', icon:'message-circle', color:'#25D366'},
+  ig:{name:'Instagram', desc:'Hubungkan akun bisnis IG untuk DM otomatis', icon:'instagram', color:'#E1306C'},
+  shopee:{name:'Shopee', desc:'Hubungkan via Shopee Open Platform', icon:'shopping-bag', color:'#EE4D2D'},
+  tokopedia:{name:'Tokopedia', desc:'Hubungkan via Tokopedia Seller API', icon:'store', color:'#03AC0E'},
+};
+function SettingsPage({db, onBack, pushToast}){
+  const [tab,setTab]=useState('channel');
+  const [connKey,setConnKey]=useState(null);
+  const [token,setToken]=useState('');
+  const [connecting,setConnecting]=useState(false);
+  const [qrForm,setQrForm]=useState(null);   // {id?} quick reply form
+  const [qrTitle,setQrTitle]=useState(''); const [qrText,setQrText]=useState('');
+  const [tmForm,setTmForm]=useState(false);
+  const [tmName,setTmName]=useState(''); const [tmRole,setTmRole]=useState('CS Pagi');
+
+  const connect=(key)=>{
+    setConnecting(true);
+    setTimeout(()=>{
+      store.update(d=>({...d, channels:{...d.channels, [key]:{connected:true, token:token||'dummy-token-'+uid().slice(0,6)}}}));
+      setConnecting(false); setConnKey(null); setToken('');
+      pushToast(`${CHANNEL_META[key].name} terhubung (simulasi)`,'plug');
+    },1200);
+  };
+  const disconnect=(key)=>{
+    store.update(d=>({...d, channels:{...d.channels, [key]:{connected:false, token:''}}}));
+    pushToast(`${CHANNEL_META[key].name} diputus`,'unplug');
+  };
+  const saveQR=()=>{
+    if(!qrTitle.trim()||!qrText.trim()){ pushToast('Judul & isi balasan wajib diisi','alert-triangle'); return; }
+    const shortcut='/'+qrTitle.toLowerCase().replace(/[^a-z0-9]+/g,'');
+    if(qrForm?.id){
+      store.update(d=>({...d, quick_replies:d.quick_replies.map(q=>q.id===qrForm.id?{...q,title:qrTitle,text:qrText}:q)}));
+      pushToast('Template diperbarui','check');
+    } else {
+      store.update(d=>({...d, quick_replies:[...d.quick_replies,{id:uid(),shortcut,title:qrTitle,text:qrText}]}));
+      pushToast(`Template ${shortcut} ditambahkan`,'check');
+    }
+    setQrForm(null); setQrTitle(''); setQrText('');
+  };
+  const addMember=()=>{
+    if(!tmName.trim()){ pushToast('Nama wajib diisi','alert-triangle'); return; }
+    store.update(d=>({...d, team_members:[...d.team_members,{id:uid(),name:tmName.trim(),role:tmRole,shift:'-',online:false}]}));
+    setTmForm(false); setTmName(''); pushToast(`${tmName} ditambahkan ke tim`,'user-plus');
+  };
+  const resetDemo=()=>{
+    if(confirm('Reset semua data ke demo awal? Chat simulasi akan hilang.')){
+      localStorage.removeItem(DB_KEY);
+      const db=seedDB(); persist(db); store.db=db; _subs.forEach(f=>f());
+      pushToast('Data demo di-reset','refresh-cw');
+    }
+  };
+
+  return <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack} className="w-10 h-10 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center hover:shadow-soft"><LucideIcon name="arrow-left" size={18}/></button>
+        <div><h1 className="font-extrabold text-xl">Pengaturan</h1><p className="text-sm text-slate-400">Kelola channel, balasan cepat & tim</p></div>
+      </div>
+      <div className="flex gap-2 mb-6">
+        {[['channel','plug','Hubungkan Channel'],['qr','zap','Balasan Cepat'],['team','users','Kelola Tim']].map(t=>
+          <button key={t[0]} onClick={()=>setTab(t[0])} className={`flex items-center gap-1.5 text-sm font-bold px-4 py-2.5 rounded-full transition ${tab===t[0]?'bg-slate-900 dark:bg-white text-white dark:text-slate-900':'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+            <LucideIcon name={t[1]} size={15}/> {t[2]}</button>)}
+      </div>
+
+      {tab==='channel' && <div className="grid md:grid-cols-2 gap-4">
+        {Object.keys(CHANNEL_META).map(key=>{
+          const m=CHANNEL_META[key], ch=db.channels[key];
+          return <div key={key} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white" style={{background:m.color}}><LucideIcon name={m.icon} size={24}/></div>
+              {ch.connected
+                ? <span className="flex items-center gap-1 text-xs font-bold text-green-700 bg-green-100 dark:bg-green-950 px-2.5 py-1 rounded-full"><span className="w-2 h-2 bg-green-500 rounded-full anim-pulse-dot"/> Terhubung</span>
+                : <span className="text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full">Belum terhubung</span>}
+            </div>
+            <h3 className="font-extrabold mb-1">{m.name}</h3>
+            <p className="text-sm text-slate-400 mb-4">{m.desc}</p>
+            {ch.connected
+              ? <button onClick={()=>disconnect(key)} className="text-sm font-bold text-red-500 hover:text-red-600 border border-red-200 dark:border-red-900 px-4 py-2 rounded-full w-full transition">Putuskan Koneksi</button>
+              : <button onClick={()=>setConnKey(key)} className="text-sm font-bold text-white px-4 py-2.5 rounded-full w-full transition" style={{background:m.color}}>Hubungkan</button>}
+          </div>;
+        })}
+        <div className="md:col-span-2 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-2xl p-4 text-sm text-blue-800 dark:text-blue-200 flex gap-2">
+          <LucideIcon name="info" size={18} className="shrink-0 mt-0.5"/>
+          <span>Mode demo: koneksi disimulasikan dengan token dummy. Untuk production, ganti dengan OAuth resmi tiap platform (lihat PANDUAN).</span>
+        </div>
+      </div>}
+
+      {tab==='qr' && <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-extrabold">Template Balasan Cepat</h3>
+          <button onClick={()=>{setQrForm({}); setQrTitle(''); setQrText('');}} className="flex items-center gap-1 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-full"><LucideIcon name="plus" size={15}/> Tambah</button>
+        </div>
+        <div className="space-y-2">
+          {db.quick_replies.map(q=><div key={q.id} className="flex items-start gap-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3">
+            <span className="text-xs font-extrabold text-brand-700 dark:text-brand-300 bg-brand-100 dark:bg-brand-900/50 px-2 py-1 rounded-lg shrink-0">{q.shortcut}</span>
+            <div className="flex-1 min-w-0"><div className="font-bold text-sm">{q.title}</div><div className="text-xs text-slate-400 truncate">{q.text}</div></div>
+            <button onClick={()=>{setQrForm(q); setQrTitle(q.title); setQrText(q.text);}} className="p-1.5 text-slate-400 hover:text-brand-600"><LucideIcon name="pencil" size={15}/></button>
+            <button onClick={()=>{store.update(d=>({...d,quick_replies:d.quick_replies.filter(x=>x.id!==q.id)})); pushToast('Template dihapus','trash-2');}} className="p-1.5 text-slate-400 hover:text-red-500"><LucideIcon name="trash-2" size={15}/></button>
+          </div>)}
+        </div>
+      </div>}
+
+      {tab==='team' && <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-extrabold">Tim Customer Service</h3>
+          <button onClick={()=>setTmForm(v=>!v)} className="flex items-center gap-1 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-full"><LucideIcon name="plus" size={15}/> Tambah Admin</button>
+        </div>
+        {tmForm && <div className="flex flex-col sm:flex-row gap-2 mb-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3">
+          <input value={tmName} onChange={e=>setTmName(e.target.value)} placeholder="Nama admin..." className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm"/>
+          <select value={tmRole} onChange={e=>setTmRole(e.target.value)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold">
+            <option>CS Pagi</option><option>CS Sore</option><option>Admin</option><option>Owner</option>
+          </select>
+          <button onClick={addMember} className="bg-brand-600 text-white text-sm font-bold px-5 py-2 rounded-xl">Simpan</button>
+        </div>}
+        <div className="space-y-2">
+          {db.team_members.map(t=><div key={t.id} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3">
+            <div className="relative"><Avatar name={t.name} id={t.id}/>{t.online && <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-slate-900 rounded-full"/>}</div>
+            <div className="flex-1"><div className="font-bold text-sm flex items-center gap-2">{t.name}{t.role==='Owner'&&<span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Kamu</span>}</div>
+              <div className="text-xs text-slate-400">{t.role} • {t.shift}</div></div>
+            {t.role!=='Owner' && <button onClick={()=>{store.update(d=>({...d,team_members:d.team_members.filter(x=>x.id!==t.id), conversations:d.conversations.map(c=>c.assignedTo===t.id?{...c,assignedTo:null}:c)})); pushToast(`${t.name} dihapus dari tim`,'user-x');}} className="p-1.5 text-slate-400 hover:text-red-500"><LucideIcon name="trash-2" size={15}/></button>}
+          </div>)}
+        </div>
+      </div>}
+
+      <div className="mt-6 flex flex-wrap gap-2">
+        <button onClick={resetDemo} className="text-sm font-bold text-slate-500 hover:text-red-500 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-full transition flex items-center gap-1.5"><LucideIcon name="refresh-cw" size={14}/> Reset Data Demo</button>
+      </div>
+    </div>
+
+    {/* MODAL KONEKSI */}
+    {connKey && <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center p-4" onClick={()=>setConnKey(null)}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-sm shadow-pop" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white" style={{background:CHANNEL_META[connKey].color}}><LucideIcon name={CHANNEL_META[connKey].icon} size={22}/></div>
+          <div><h3 className="font-extrabold">Hubungkan {CHANNEL_META[connKey].name}</h3><p className="text-xs text-slate-400">Simulasi koneksi API</p></div>
+        </div>
+        <label className="text-xs font-bold text-slate-500">API TOKEN (dummy)</label>
+        <input value={token} onChange={e=>setToken(e.target.value)} placeholder="cth: wa_token_abc123..." className="w-full mt-1 mb-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm font-mono"/>
+        <div className="flex gap-2">
+          <button onClick={()=>setConnKey(null)} className="flex-1 text-sm font-bold border border-slate-200 dark:border-slate-700 py-2.5 rounded-xl">Batal</button>
+          <button onClick={()=>connect(connKey)} disabled={connecting} className="flex-1 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 py-2.5 rounded-xl flex items-center justify-center gap-2">
+            {connecting ? <><LucideIcon name="loader-2" size={15} className="animate-spin"/> Menghubungkan...</> : 'Simulasikan Koneksi'}
+          </button>
+        </div>
+      </div>
+    </div>}
+
+    {/* MODAL QUICK REPLY */}
+    {qrForm && <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center p-4" onClick={()=>setQrForm(null)}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md shadow-pop" onClick={e=>e.stopPropagation()}>
+        <h3 className="font-extrabold mb-4">{qrForm.id?'Edit Template':'Tambah Template Baru'}</h3>
+        <label className="text-xs font-bold text-slate-500">Judul (shortcut otomatis: /judul)</label>
+        <input value={qrTitle} onChange={e=>setQrTitle(e.target.value)} placeholder="cth: Jam Operasional" className="w-full mt-1 mb-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm"/>
+        <label className="text-xs font-bold text-slate-500">Isi Balasan</label>
+        <textarea value={qrText} onChange={e=>setQrText(e.target.value)} rows={4} placeholder="Tulis template balasan..." className="w-full mt-1 mb-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm"/>
+        <div className="flex gap-2">
+          <button onClick={()=>setQrForm(null)} className="flex-1 text-sm font-bold border border-slate-200 dark:border-slate-700 py-2.5 rounded-xl">Batal</button>
+          <button onClick={saveQR} className="flex-1 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 py-2.5 rounded-xl">Simpan Template</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+/* ================= APP SHELL ================= */
+function App(){
+  const db = useStore();
+  const [view,setView]=useState('landing');       // landing | app | settings
+  const [activeId,setActiveId]=useState(null);
+  const [filter,setFilter]=useState('all');
+  const [search,setSearch]=useState('');
+  const [draft,setDraft]=useState('');
+  const [mobileTab,setMobileTab]=useState('list'); // list | chat | info (mobile)
+  const [flashId,setFlashId]=useState(null);
+  const {toasts,push}=useToasts();
+  const convIdRef=useRef(null); convIdRef.current=activeId;
+
+  // theme
+  useEffect(()=>{
+    const t=db.theme||'light';
+    document.documentElement.classList.toggle('dark', t==='dark');
+  },[db.theme]);
+  const toggleTheme=()=>store.update(d=>({...d, theme:d.theme==='dark'?'light':'dark'}));
+
+  // FASE 2.1 — simulasi chat masuk tiap 15 detik saat di inbox
+  useEffect(()=>{
+    if(view!=='app') return;
+    const iv=setInterval(()=>{
+      const fid=simulateIncomingChat();
+      if(!fid) return;
+      setFlashId(fid);
+      setTimeout(()=>setFlashId(f=>f===fid?null:f), 3500);
+      const c=store.db.conversations.find(x=>x.id===fid);
+      const cust=c?getCustomer(store.db,c.customerId):null;
+      push(`Chat baru dari ${cust?.name||'pelanggan'} (${PLATFORMS[c?.platform]?.name})`,'message-circle');
+    },15000);
+    return ()=>clearInterval(iv);
+  },[view]);
+
+  const goApp=()=>{ setView('app'); setMobileTab('list'); };
+  const selectConv=id=>{ setActiveId(id); setDraft(''); setMobileTab('chat'); };
+  const newDummy=()=>{ const fid=simulateIncomingChat(); if(!fid){ push('Semua chat sudah selesai 🎉','check-circle-2'); return; } setFlashId(fid); setTimeout(()=>setFlashId(f=>f===fid?null:f),3500); push('Chat dummy dibuat untuk demo','zap'); };
+
+  if(view==='landing') return <><LandingPage goApp={goApp} theme={db.theme} toggleTheme={toggleTheme}/><Toasts toasts={toasts}/></>;
+  if(view==='settings') return <><SettingsPage db={db} onBack={goApp} pushToast={push}/><Toasts toasts={toasts}/></>;
+
+  const sound=db.sound!==false;
+  return <div className="h-screen flex flex-col overflow-hidden">
+    {/* TOP BAR */}
+    <header className="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center gap-2 z-20">
+      <button onClick={()=>setView('landing')} className="flex items-center gap-2 shrink-0" title="Kembali ke landing page">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white font-extrabold text-sm">B</div>
+        <span className="font-extrabold hidden sm:inline">BalasCepat</span>
+      </button>
+      <div className="flex-1"/>
+      <button onClick={newDummy} className="flex items-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-brand-600 hover:opacity-90 px-3.5 py-2 rounded-full transition shadow-soft">
+        <LucideIcon name="zap" size={14}/> <span className="hidden sm:inline">Buat Chat Dummy Baru</span><span className="sm:hidden">Dummy</span>
+      </button>
+      <button onClick={()=>store.update(d=>({...d,sound:!d.sound}))} title={sound?'Matikan suara notifikasi':'Nyalakan suara notifikasi'}
+        className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500">
+        <LucideIcon name={sound?'bell-ring':'bell-off'} size={18}/>
+      </button>
+      <button onClick={toggleTheme} title="Dark mode" className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500">
+        <LucideIcon name={db.theme==='dark'?'sun':'moon'} size={18}/>
+      </button>
+      <button onClick={()=>setView('settings')} title="Pengaturan" className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500">
+        <LucideIcon name="settings" size={18}/>
+      </button>
+    </header>
+
+    {/* 3 KOLOM */}
+    <div className="flex-1 flex min-h-0">
+      {/* Kolom 1 — 20% */}
+      <div className={`w-full md:w-[26%] lg:w-[22%] shrink-0 h-full ${mobileTab!=='list'?'hidden md:block':''}`}>
+        <InboxList db={db} activeId={activeId} onSelect={selectConv} filter={filter} setFilter={setFilter}
+          search={search} setSearch={setSearch} onNewDummy={newDummy} flashId={flashId}/>
+      </div>
+      {/* Kolom 2 — 55% */}
+      <div className={`flex-1 min-w-0 h-full ${mobileTab!=='chat'?'hidden md:flex':''} flex-col`} style={{display: mobileTab!=='chat' ? undefined : 'flex'}}>
+        <div className={`h-full ${mobileTab==='chat'?'flex':'hidden'} md:flex flex-col w-full`}>
+          <ChatWindow db={db} convId={activeId} onBack={()=>setMobileTab('list')} onShowInfo={()=>setMobileTab('info')}
+            draft={draft} setDraft={setDraft} pushToast={push}/>
+        </div>
+      </div>
+      {/* Kolom 3 — 25% */}
+      <div className={`w-full md:w-[30%] lg:w-[26%] shrink-0 h-full ${mobileTab!=='info'?'hidden md:block':''}`}>
+        <div className="md:hidden flex items-center gap-2 p-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <button onClick={()=>setMobileTab('chat')} className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center"><LucideIcon name="chevron-left" size={20}/></button>
+          <span className="font-extrabold text-sm">Info & AI Assistant</span>
+        </div>
+        <InfoPanel db={db} convId={activeId} onInsertDraft={t=>{setDraft(t); setMobileTab('chat');}} pushToast={push}/>
+      </div>
+    </div>
+
+    {/* MOBILE BOTTOM NAV */}
+    <nav className="md:hidden shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex z-20">
+      {[['list','inbox','Chat'],['chat','message-square','Balas'],['info','sparkles','Info & AI']].map(t=>
+        <button key={t[0]} onClick={()=>setMobileTab(t[0])} className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 text-[11px] font-bold ${mobileTab===t[0]?'text-brand-600':'text-slate-400'}`}>
+          <LucideIcon name={t[1]} size={20}/>{t[2]}
+        </button>)}
+    </nav>
+    <Toasts toasts={toasts}/>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
